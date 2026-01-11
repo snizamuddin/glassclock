@@ -1,128 +1,144 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Shatter Clock</title>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.0/p5.js"></script>
-    <style>
-        body { margin: 0; padding: 0; background-color: #0a0a0a; overflow: hidden; display: flex; justify-content: center; align-items: center; height: 100vh; }
-        canvas { display: block; }
-    </style>
-</head>
-<body>
-    <script>
-        // --- YOUR P5.JS CODE STARTS HERE ---
-        let shardSeeds = [];
-        let shatteredIndices = new Set();
-        let fallingShards = [];
-        let lastSec;
-        const w = 300;
-        const h = 300;
+let shardSeeds = [];
+let shatteredIndices = new Set();
+let fallingShards = [];
+let lastSec;
+const w = 300;
+const h = 300;
 
-        function setup() {
-            createCanvas(windowWidth, windowHeight);
+function setup() {
+    createCanvas(windowWidth, windowHeight);
+    resetGlass();
+    
+    // NEW: Sync immediately on load
+    let currentS = second();
+    for (let i = 0; i < currentS; i++) {
+        triggerInstantShatter();
+    }
+    lastSec = currentS;
+}
+
+function draw() {
+    background(10);
+    let floorY = height - 100;
+
+    // Timer
+    fill(0, 150, 255);
+    textAlign(CENTER);
+    textSize(32);
+    textFont('Courier New');
+    text(nf(hour(), 2) + ":" + nf(minute(), 2) + ":" + nf(second(), 2), width / 2, 70);
+
+    let s = second();
+    
+    // Handle the transition between minutes
+    if (s !== lastSec) {
+        if (s === 0) {
             resetGlass();
-            lastSec = second();
+        } else if (s > lastSec) {
+            // Normal second-by-second shatter
+            triggerRandomShatter();
+        } else if (s < lastSec && s !== 0) {
+            // Safety check for tab waking up or minute rollover
+            resetGlass();
+            for (let i = 0; i < s; i++) triggerInstantShatter();
         }
+        lastSec = s;
+    }
 
-        function draw() {
-            background(10);
-            let floorY = height - 100;
+    push();
+    translate(width / 2 - w / 2, height / 2 - h / 2);
+    
+    // Draw the Main Solid Glass Pane
+    noStroke();
+    fill(200, 230, 255, 40);
+    rect(0, 0, w, h);
 
-            // Timer
-            fill(0, 150, 255);
-            textAlign(CENTER);
-            textSize(32);
-            textFont('Courier New');
-            text(nf(hour(), 2) + ":" + nf(minute(), 2) + ":" + nf(second(), 2), width/2, 70);
+    // Draw "Holes" for shattered pieces
+    fill(10); 
+    for (let idx of shatteredIndices) {
+        drawJaggedShape(shardSeeds[idx]);
+    }
 
-            let s = second();
-            if (s !== lastSec) {
-                if (s === 0) resetGlass();
-                else triggerRandomShatter();
-                lastSec = s;
+    // Update and Draw Shards
+    for (let shard of fallingShards) {
+        shard.update(floorY - (height / 2 - h / 2));
+        shard.display();
+    }
+    pop();
+}
+
+function resetGlass() {
+    shardSeeds = [];
+    shatteredIndices.clear();
+    fallingShards = [];
+    // We use a fixed seed for the noise so the "holes" match the "shards"
+    for (let i = 0; i < 60; i++) {
+        shardSeeds.push({
+            x: random(w),
+            y: random(h),
+            size: random(35, 65),
+            offset: random(1000)
+        });
+    }
+}
+
+// Shatters a piece with a falling animation (used for live seconds)
+function triggerRandomShatter() {
+    let available = [];
+    for (let i = 0; i < 60; i++) {
+        if (!shatteredIndices.has(i)) available.push(i);
+    }
+    if (available.length > 0) {
+        let choice = random(available);
+        shatteredIndices.add(choice);
+        fallingShards.push(new PhysicalShard(shardSeeds[choice]));
+    }
+}
+
+// NEW: Shatters a piece instantly to the floor (used for initial page load)
+function triggerInstantShatter() {
+    let available = [];
+    for (let i = 0; i < 60; i++) {
+        if (!shatteredIndices.has(i)) available.push(i);
+    }
+    if (available.length > 0) {
+        let choice = random(available);
+        shatteredIndices.add(choice);
+        let fastShard = new PhysicalShard(shardSeeds[choice]);
+        fastShard.pos.y = height; // Teleport to bottom
+        fastShard.onGround = true;
+        fallingShards.push(fastShard);
+    }
+}
+
+function drawJaggedShape(seed) {
+    beginShape();
+    for (let a = 0; a < TWO_PI; a += PI / 4) {
+        let r = seed.size * (0.6 + noise(seed.offset, a) * 0.5);
+        vertex(seed.x + cos(a) * r, seed.y + sin(a) * r);
+    }
+    endShape(CLOSE);
+}
+
+class PhysicalShard {
+    constructor(seed) {
+        this.seed = seed;
+        this.pos = createVector(seed.x, seed.y);
+        this.vel = createVector(random(-2, 2), random(0, 3));
+        this.rot = random(TWO_PI);
+        this.rotVel = random(-0.05, 0.05);
+        this.opacity = 255;
+        this.onGround = false;
+    }
+
+    update(fL) {
+        if (!this.onGround) {
+            this.pos.add(this.vel);
+            this.vel.y += 0.2;
+            this.rot += this.rotVel;
+            if (this.pos.y > fL) {
+                this.pos.y = fL + random(-10, 10);
+                this.onGround = true;
             }
-
-            push();
-            translate(width/2 - w/2, height/2 - h/2);
-            noStroke();
-            fill(200, 230, 255, 40); 
-            rect(0, 0, w, h);
-
-            fill(10); 
-            for (let idx of shatteredIndices) {
-                drawJaggedShape(shardSeeds[idx]);
-            }
-
-            for (let shard of fallingShards) {
-                shard.update(floorY - (height/2 - h/2));
-                shard.display();
-            }
-            pop();
-        }
-
-        function resetGlass() {
-            shardSeeds = [];
-            shatteredIndices.clear();
-            fallingShards = [];
-            for (let i = 0; i < 60; i++) {
-                shardSeeds.push({ x: random(w), y: random(h), size: random(35, 65), offset: random(1000) });
-            }
-        }
-
-        function triggerRandomShatter() {
-            let available = [];
-            for(let i=0; i<60; i++) if(!shatteredIndices.has(i)) available.push(i);
-            if(available.length > 0) {
-                let choice = random(available);
-                shatteredIndices.add(choice);
-                fallingShards.push(new PhysicalShard(shardSeeds[choice]));
-            }
-        }
-
-        function drawJaggedShape(seed) {
-            beginShape();
-            for(let a=0; a<TWO_PI; a+=PI/4) {
-                let r = seed.size * (0.6 + noise(seed.offset, a) * 0.5);
-                vertex(seed.x + cos(a)*r, seed.y + sin(a)*r);
-            }
-            endShape(CLOSE);
-        }
-
-        class PhysicalShard {
-            constructor(seed) {
-                this.seed = seed;
-                this.pos = createVector(seed.x, seed.y);
-                this.vel = createVector(random(-2, 2), random(0, 3));
-                this.rot = 0;
-                this.rotVel = random(-0.05, 0.05);
-                this.opacity = 255;
-                this.onGround = false;
-            }
-            update(fL) {
-                if (!this.onGround) {
-                    this.pos.add(this.vel);
-                    this.vel.y += 0.2;
-                    this.rot += this.rotVel;
-                    if (this.pos.y > fL) {
-                        this.pos.y = fL + random(-5, 5);
-                        this.onGround = true;
-                    }
-                } else if (this.opacity > 100) this.opacity -= 0.5;
-            }
-            display() {
-                push();
-                translate(this.pos.x, this.pos.y);
-                rotate(this.rot);
-                translate(-this.seed.x, -this.seed.y);
-                stroke(255, this.opacity);
-                fill(180, 220, 255, this.opacity * 0.4);
-                drawJaggedShape(this.seed);
-                pop();
-            }
-        }
-        // --- YOUR P5.JS CODE ENDS HERE ---
-    </script>
-</body>
-</html>
+        } else if (this.opacity > 100) {
+            this.opacity -= 0.5
